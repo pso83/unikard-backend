@@ -46,7 +46,6 @@ class User(UserMixin, db.Model):
 
     commerces = db.relationship('Commerce', secondary=commerce_users, backref='clients')
 
-
 class Commerce(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -163,7 +162,7 @@ def login():
         print("Utilisateur trouvé :", user.email)  # Ajoute cette ligne
         if bcrypt.check_password_hash(user.password, password):
             print("Mot de passe correct")  # Ajoute cette ligne
-            token = create_access_token(identity=user.id)
+            token = create_access_token(identity=str(user.id))
             return jsonify({
                 "token": token,
                 "is_merchant": user.is_merchant,
@@ -547,6 +546,12 @@ def get_client_transactions():
 @app.route('/commerce/create', methods=['POST'])
 @jwt_required()
 def create_commerce():
+    # Ne force pas la lecture du body s’il n’est pas utile
+    try:
+        _ = request.get_json(force=False, silent=True)  # ← évite erreur si vide
+    except Exception:
+        pass
+
     user_id = get_jwt_identity()
     existing = Commerce.query.filter_by(owner_id=user_id).first()
     if existing:
@@ -564,6 +569,40 @@ def create_commerce():
     db.session.add(new_commerce)
     db.session.commit()
     return jsonify({"message": "Commerce créé avec succès."}), 201
+
+@app.route('/commerce/<int:commerce_id>', methods=['PUT'])
+@jwt_required()
+def update_specific_commerce(commerce_id):
+    user_id = get_jwt_identity()
+    commerce = Commerce.query.get(commerce_id)
+
+    if not commerce or commerce.owner_id != user_id:
+        return jsonify({"error": "Commerce introuvable ou non autorisé."}), 403
+
+    data = request.get_json()
+    commerce.name = data.get("name", commerce.name)
+    commerce.type = data.get("type", commerce.type)
+    commerce.address = data.get("address", commerce.address)
+    commerce.phone = data.get("phone", commerce.phone)
+    commerce.email = data.get("email", commerce.email)
+    commerce.hours = data.get("hours", commerce.hours)
+
+    db.session.commit()
+    return jsonify({"message": "Commerce mis à jour avec succès."})
+
+@app.route('/commerce/<int:commerce_id>', methods=['DELETE'])
+@jwt_required()
+def delete_commerce(commerce_id):
+    user_id = get_jwt_identity()
+    commerce = Commerce.query.get(commerce_id)
+
+    if not commerce or commerce.owner_id != user_id:
+        return jsonify({"error": "Commerce introuvable ou non autorisé."}), 403
+
+    db.session.delete(commerce)
+    db.session.commit()
+    return jsonify({"message": "Commerce supprimé avec succès."})
+
 
 if __name__ == '__main__':
     with app.app_context():
